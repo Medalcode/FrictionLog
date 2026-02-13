@@ -18,11 +18,35 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 
 ### 🚀 Quickstart
 
+#### Opción A: Docker (Recomendado)
+
 1. **Clona y levanta**
 
    ```bash
    git clone https://github.com/Medalcode/FrictionLog.git && cd FrictionLog
-   bash demo.sh
+   docker-compose up --build -d
+   ```
+
+2. **Servicios**
+   - **Dashboard:** [http://localhost:8501](http://localhost:8501)
+   - **API:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+#### Opción B: Local (Python)
+
+1. **Instala y ejecuta**
+
+   ```bash
+   # Clona
+   git clone https://github.com/Medalcode/FrictionLog.git && cd FrictionLog
+   
+   # Setup entorno
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   
+   # Ejecuta API y Dashboard (en terminales separadas)
+   uvicorn app:app --reload
+   streamlit run streamlit_app.py
    ```
 
 2. **Registra una fricción (tu primer pain-point)**
@@ -53,7 +77,16 @@ Simple, hackeable y sin dependencias pesadas.
 - **Core:** FastAPI (Python)
 - **DB:** SQLite (cero configuración)
 - **UI:** Streamlit (Dashboard instantáneo)
+- **Infra:** Docker & Docker Compose
 - **IA (Opcional):** Soporte para Ollama, Llama 3 o cualquier API compatible.
+
+---
+
+### 🤝 Desarrollo
+
+Consulta nuestras guías internas para contribuir:
+- [Roles de Agentes](./agents.md): Estructura del equipo simulado.
+- [Skills y Estándares](./skills.md): Guías técnicas y mejores prácticas.
 
 ---
 

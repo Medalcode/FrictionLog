@@ -3,9 +3,16 @@ from pydantic import BaseModel
 import sqlite3
 from typing import Optional
 import os
-import requests
+from contextlib import asynccontextmanager
+import httpx
 
-app = FastAPI(title="FrictionLog")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_tables()
+    migrate_tables()
+    yield
+
+app = FastAPI(title="FrictionLog", lifespan=lifespan)
 DB_PATH = "frictionlog.db"
 
 
@@ -39,10 +46,27 @@ def ensure_tables():
     conn.commit()
     conn.close()
 
+def migrate_tables():
+    """Simple migration to add new columns if they don't exist."""
+    conn = get_db_conn()
+    cur = conn.cursor()
+    columns = [
+        ("nombre_comercial", "TEXT"),
+        ("categoria", "TEXT"),
+        ("arquitectura", "TEXT"),
+        ("mvp_features", "TEXT")
+    ]
+    for col_name, col_type in columns:
+        try:
+            cur.execute(f"ALTER TABLE fricciones ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            # Column likely exists
+            pass
+    conn.commit()
+    conn.close()
 
-@app.on_event("startup")
-def startup():
-    ensure_tables()
+
+
 
 
 @app.post("/registrar-friccion")
@@ -63,14 +87,24 @@ def registrar_friccion(f: FrictionInput):
 def list_fricciones(limit: int = 50):
     conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, user_id, description, severity, created_at FROM fricciones ORDER BY created_at DESC LIMIT ?", (limit,))
+    cur.execute("SELECT id, user_id, description, severity, created_at, nombre_comercial, categoria, arquitectura, mvp_features FROM fricciones ORDER BY created_at DESC LIMIT ?", (limit,))
     rows = cur.fetchall()
     conn.close()
-    return [{"id": r[0], "user_id": r[1], "description": r[2], "severity": r[3], "created_at": r[4]} for r in rows]
+    return [{
+        "id": r[0], 
+        "user_id": r[1], 
+        "description": r[2], 
+        "severity": r[3], 
+        "created_at": r[4],
+        "nombre_comercial": r[5],
+        "categoria": r[6],
+        "arquitectura": r[7],
+        "mvp_features": r[8]
+    } for r in rows]
 
 
 @app.post("/analizar-con-ia")
-def analizar_con_ia(payload: AnalyzeInput):
+async def analizar_con_ia(payload: AnalyzeInput):
     """Analiza una fricción usando una API de LLM si está disponible (LLM_API_URL en env).
     Si no hay LLM configurado, devuelve un análisis heurístico simple."""
     text = payload.description.strip()
@@ -83,33 +117,34 @@ Problema: "{text}"
 """
 
     llm_url = os.environ.get("LLM_API_URL")
-    def call_llm(prompt: str):
-        llm_url = os.environ.get("LLM_API_URL")
-        model = os.environ.get("LLM_MODEL", "llama3")
+    model = os.environ.get("LLM_MODEL", "llama3")
+
+    async def call_llm(prompt: str):
         if not llm_url:
             return {"ok": False, "error": "LLM_API_URL not set"}
         try:
-            # Ollama local default: http://localhost:11434
-            if "11434" in llm_url or "ollama" in llm_url:
-                url = llm_url.rstrip("/") + "/api/generate"
-                payload = {"model": model, "prompt": prompt, "stream": False}
-                resp = requests.post(url, json=payload, timeout=30)
-                text = resp.text
-            else:
-                # Generic LLM endpoint expecting {prompt: ...}
-                resp = requests.post(llm_url, json={"prompt": prompt}, timeout=30)
-                text = resp.text
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Ollama local default: http://localhost:11434
+                if "11434" in llm_url or "ollama" in llm_url:
+                    url = llm_url.rstrip("/") + "/api/generate"
+                    payload = {"model": model, "prompt": prompt, "stream": False}
+                    resp = await client.post(url, json=payload)
+                    text = resp.text
+                else:
+                    # Generic LLM endpoint expecting {prompt: ...}
+                    resp = await client.post(llm_url, json={"prompt": prompt})
+                    text = resp.text
 
-            # Try to parse JSON from response
-            try:
-                return {"ok": True, "json": resp.json()}
-            except Exception:
-                return {"ok": True, "text": text}
+                # Try to parse JSON from response
+                try:
+                    return {"ok": True, "json": resp.json()}
+                except Exception:
+                    return {"ok": True, "text": text}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
     # Call the LLM (if configured) and try to return structured output
-    llm_result = call_llm(system_prompt)
+    llm_result = await call_llm(system_prompt)
     if llm_result.get("ok"):
         if "json" in llm_result:
             return {"from": "llm", "response": llm_result["json"]}
@@ -155,4 +190,57 @@ Problema: "{text}"
         "arquitectura_sugerida": arquitectura,
         "funcionalidad_clave_mvp": mvp,
     }
+
+
+@app.post("/fricciones/{friction_id}/analizar")
+async def analyze_friction(friction_id: int):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT description FROM fricciones WHERE id = ?", (friction_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Friction not found")
+        
+    description = row[0]
+    
+    # Reuse existing analyze logic
+    payload = AnalyzeInput(description=description)
+    # We call the function directly. Since it is async now, we await it.
+    analysis = await analizar_con_ia(payload)
+    
+    nombre = "N/A"
+    categoria = "Unknown"
+    arquitectura = ""
+    mvp = ""
+
+    if "response" in analysis:
+        resp = analysis["response"]
+        nombre = resp.get("nombre_comercial", "N/A")
+        categoria = resp.get("categoria", "Unknown")
+        arquitectura = resp.get("arquitectura_sugerida", "")
+        mvp = resp.get("funcionalidad_clave_mvp", "")
+    elif analysis.get("from") == "heuristic":
+        nombre = analysis.get("nombre_comercial", "N/A")
+        categoria = analysis.get("categoria", "Unknown")
+        arquitectura = analysis.get("arquitectura_sugerida", "")
+        mvp = analysis.get("funcionalidad_clave_mvp", "")
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    # Ensure columns exist (migrated)
+    try:
+        cur.execute("""
+            UPDATE fricciones 
+            SET nombre_comercial = ?, categoria = ?, arquitectura = ?, mvp_features = ?
+            WHERE id = ?
+        """, (nombre, categoria, arquitectura, mvp, friction_id))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    conn.close()
+    
+    return {"status": "ok", "id": friction_id, "analysis": analysis}
 
