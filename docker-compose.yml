@@ -2,7 +2,7 @@ services:
   api:
     build: .
     container_name: frictionlog-api
-    command: gunicorn app:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    command: gunicorn api:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
     volumes:
       - ./frictionlog.db:/app/frictionlog.db
     environment:
@@ -17,10 +17,10 @@ services:
   dashboard:
     build: .
     container_name: frictionlog-ui
-    command: streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+    command: streamlit run ui.py --server.port 8501 --server.address 0.0.0.0
     volumes:
       - ./frictionlog.db:/app/frictionlog.db
-      - ./streamlit_app.py:/app/streamlit_app.py:ro
+      - ./ui.py:/app/ui.py:ro
     depends_on:
       - api
     ports:
