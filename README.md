@@ -45,8 +45,8 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
    pip install -r requirements.txt
    
    # Ejecuta API y Dashboard (en terminales separadas)
-   uvicorn app:app --reload
-   streamlit run streamlit_app.py
+   uvicorn api:app --reload
+   streamlit run ui.py
    ```
 
 2. **Registra una fricción (tu primer pain-point)**
@@ -70,30 +70,32 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 
 ---
 
-### 🛠 Stack Técnico
+### 🛠 Estructura Lean & Stack
 
-Simple, hackeable y sin dependencias pesadas.
+Arquitectura desacoplada para máxima hackeabilidad.
 
-- **Core:** FastAPI (Python)
-- **DB:** SQLite (cero configuración)
-- **UI:** Streamlit (Dashboard instantáneo)
-- **Infra:** Docker & Docker Compose
-- **IA (Opcional):** Soporte para Ollama, Llama 3 o cualquier API compatible.
+- **`api.py`**: Interfaz RESTful ligera con FastAPI.
+- **`core.py`**: Motor de lógica (IA, DB, Heurísticas).
+- **`ui.py`**: Dashboard visual con Streamlit.
+- **`docs/`**: Documentación técnica y bitácora.
+- **DB:** SQLite (cero configuración).
+- **IA:** Soporte para Ollama (Llama 3), OpenAI o heurísticas locales.
 
 ---
 
 ### 🤝 Desarrollo
 
-Consulta nuestras guías internas para contribuir:
-- [Roles de Agentes](./agents.md): Estructura del equipo simulado.
-- [Skills y Estándares](./skills.md): Guías técnicas y mejores prácticas.
+Consulta nuestras guías internas para contribuir (ahora en `/docs`):
+- [Roles de Agentes](./docs/agents.md): Estructura del equipo simulado.
+- [Skills y Estándares](./docs/skills.md): Guías técnicas y mejores prácticas.
+- [Bitácora](./docs/BITACORA.md): Registro de decisiones arquitectónicas.
 
 ---
 
 ### 🔮 Roadmap
 
+- [x] **Persistencia IA:** Guardar los análisis generados automáticamente en base de datos.
 - [ ] **CLI Wrapper:** `fl log "esto apesta"` para registro instantáneo.
-- [ ] **Persistencia IA:** Guardar los análisis generados automáticamente en base de datos.
 - [ ] **Smart Grouping:** Detectar fricciones duplicadas semánticamente.
 
 ---
