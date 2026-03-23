@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
+import asyncio
 import core
-
+from llm_client import analizar_friccion, API_KEY
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     core.init_db()
@@ -13,11 +14,21 @@ app = FastAPI(title="FrictionLog API", lifespan=lifespan)
 
 class FrictionInput(BaseModel):
     user_id: str = "anonymous"
-    description: str = Field(..., min_length=10)
+    description: str = Field(..., min_length=10, description="Descripción del problema, obligatoria y al menos de 10 caracteres")
     severity: int = Field(1, ge=1, le=5)
 
 class AnalyzeInput(BaseModel):
-    description: str
+    description: str = Field(..., min_length=5, description="El problema o fricción a analizar")
+
+# Pydantic Models para la validación de la salida (Response Data)
+class IAAnalysisData(BaseModel):
+    categoria: str
+    tipo_problema: str
+    impacto: str
+    idea_solucion: str
+
+class IAResponseWrapper(BaseModel):
+    analisis: IAAnalysisData
 
 @app.post("/registrar-friccion")
 def registrar_friccion(f: FrictionInput):
@@ -65,23 +76,55 @@ async def analyze_friction(friction_id: int):
         raise HTTPException(status_code=404, detail="Friction not found")
         
     analysis = await core.analyze_with_ai(row[0])
+    res = analysis.get("response", {})
     
-    # Extract data from analysis result
-    res = analysis.get("response", {}) if "response" in analysis else analysis
-    nombre = res.get("nombre_comercial", "N/A")
     cat = res.get("categoria", "Unknown")
-    arch = res.get("arquitectura_sugerida", "")
-    mvp = res.get("funcionalidad_clave_mvp", "")
+    tipo = res.get("tipo_problema", "Desconocido")
+    imp = res.get("impacto", "Desconocido")
+    idea = res.get("idea_solucion", "Sin idea general")
 
     try:
         cur.execute("""
             UPDATE fricciones 
-            SET nombre_comercial = ?, categoria = ?, arquitectura = ?, mvp_features = ?
+            SET categoria = ?, tipo_problema = ?, impacto = ?, idea_solucion = ?
             WHERE id = ?
-        """, (nombre, cat, arch, mvp, friction_id))
+        """, (cat, tipo, imp, idea, friction_id))
         conn.commit()
         return {"status": "ok", "analysis": analysis}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+@app.post("/analizar-con-ia", response_model=IAResponseWrapper)
+async def api_analize_friction_endpoint(input_data: AnalyzeInput):
+    """
+    Endpoint directo y agnóstico a la DB para analizar texto libre usando IA Gen.
+    """
+    # Manejo de error si no hay API KEY
+    if not API_KEY:
+        raise HTTPException(
+            status_code=500, 
+            detail="La configuración de GOOGLE_API_KEY no existe en el entorno del servidor."
+        )
+        
+    try:
+        # Se ejecuta en un thread para evitar bloquear el Event Loop de tu app asíncrona (FastAPI)
+        resultado_ia = await asyncio.to_thread(analizar_friccion, input_data.description)
+        
+        # Como llm_client devuelve un dict con valores defaults de error, verificamos si falló la IA
+        if "Error" in resultado_ia.get("tipo_problema", ""):
+            raise HTTPException(
+                status_code=502, 
+                detail=f"Fallo en la inferencia del modelo Gemini: {resultado_ia.get('tipo_problema')}"
+            )
+            
+        # Pydantic (IAResponseWrapper) validará automáticamente que el dict encaje en la salida
+        return {"analisis": resultado_ia}
+        
+    except HTTPException:
+        # Relanzamos si es nuestro propio error controlado
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error inesperado en el servidor: {str(e)}")
