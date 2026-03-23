@@ -39,10 +39,13 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
    # Clona
    git clone https://github.com/Medalcode/FrictionLog.git && cd FrictionLog
    
-   # Setup entorno
+   # Setup entorno y dependencias
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
+   
+   # Configurar API de Gemini
+   export GOOGLE_API_KEY="tu_clave_aqui" # En Windows usa: $env:GOOGLE_API_KEY="tu_clave"
    
    # Ejecuta API y Dashboard (en terminales separadas)
    uvicorn api:app --reload
@@ -74,12 +77,13 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 
 Arquitectura desacoplada para máxima hackeabilidad.
 
-- **`api.py`**: Interfaz RESTful ligera con FastAPI.
-- **`core.py`**: Motor de lógica (IA, DB, Heurísticas).
-- **`ui.py`**: Dashboard visual con Streamlit.
+- **`api.py`**: Interfaz RESTful ligera asíncrona con FastAPI.
+- **`core.py`**: Motor de lógica y orquestador hacia la BD.
+- **`llm_client.py`**: Cliente estricto Pydantic + Google Gemini (1.5 Flash).
+- **`ui.py`**: Dashboard visual con Streamlit (Maneja Live Analytics y persistencia base).
 - **`docs/`**: Documentación técnica y bitácora.
 - **DB:** SQLite (cero configuración).
-- **IA:** Soporte para Ollama (Llama 3), OpenAI o heurísticas locales.
+- **IA:** Google AI Studio (Gemini) vía SDK oficial.
 
 ---
 

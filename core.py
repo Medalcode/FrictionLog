@@ -1,9 +1,9 @@
 import sqlite3
 import os
-import httpx
-import json
-import re
+import asyncio
 from typing import Optional, List, Dict, Any
+
+from llm_client import analizar_friccion
 
 DB_PATH = "frictionlog.db"
 
@@ -29,70 +29,24 @@ def init_db():
     conn.commit()
     conn.close()
 
-async def call_llm(prompt: str) -> Dict[str, Any]:
-    llm_url = os.environ.get("LLM_API_URL")
-    model = os.environ.get("LLM_MODEL", "llama3")
-    
-    if not llm_url:
-        return {"ok": False, "error": "LLM_API_URL not set"}
-        
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            if "11434" in llm_url or "ollama" in llm_url:
-                url = llm_url.rstrip("/") + "/api/generate"
-                payload = {"model": model, "prompt": prompt, "stream": False}
-                resp = await client.post(url, json=payload)
-                data = resp.json()
-                return {"ok": True, "text": data.get("response", "")}
-            else:
-                resp = await client.post(llm_url, json={"prompt": prompt})
-                return {"ok": True, "text": resp.text}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
 async def analyze_with_ai(description: str) -> Dict[str, Any]:
-    text = description.strip()
-    system_prompt = f"""Actúa como un Experto en Product Discovery y Arquitecto de Software. Transforma la siguiente queja en un objeto JSON con: nombre_comercial, categoria, analisis_dolor, arquitectura_sugerida, funcionalidad_clave_mvp. Sé conciso.
-
-Problema: "{text}"
-"""
-    
-    result = await call_llm(system_prompt)
-    
-    if result.get("ok"):
-        raw_text = result.get("text", "")
-        try:
-            m = re.search(r"\{.*\}", raw_text, re.DOTALL)
-            if m:
-                parsed = json.loads(m.group(0))
-                return {"from": "llm", "response": parsed}
-        except Exception:
-            pass
-        return {"from": "llm", "raw": raw_text}
-
-    # Heuristic Fallback
-    desc_lower = text.lower()
-    if any(k in desc_lower for k in ["debian", "apt", "docker"]):
+    """
+    Delega de forma asíncrona la ejecución de la llamada a la API de Gemini
+    mediante asyncio.to_thread para no bloquear el worker de FastAPI.
+    """
+    try:
+        resultado = await asyncio.to_thread(analizar_friccion, description)
+        
+        # Mapeamos la salida de Gemini al formato esperado por la tabla y la UI
+        # para no tener que regenerar toda la db / UI
         return {
-            "from": "heuristic",
-            "nombre_comercial": "PyDeb-Shield",
-            "categoria": "DevOps",
-            "arquitectura_sugerida": "CLI + microservice con contenedores ligeros (Docker) y FastAPI",
-            "funcionalidad_clave_mvp": "Comando único que detecte versión y levante un entorno aislado"
+            "from": "gemini",
+            "response": {
+                "nombre_comercial": resultado.get("tipo_problema", "Desconocido"),
+                "categoria": resultado.get("categoria", "General"),
+                "arquitectura_sugerida": f"Impacto: {resultado.get('impacto', 'Bajo')}",
+                "funcionalidad_clave_mvp": resultado.get("idea_solucion", "Sin funcionalidad clara")
+            }
         }
-    elif any(k in desc_lower for k in ["excel", "xls", "hoja"]):
-        return {
-            "from": "heuristic",
-            "nombre_comercial": "SheetBridge",
-            "categoria": "Small Business / Automation",
-            "arquitectura_sugerida": "API de conversión de plantillas a endpoints",
-            "funcionalidad_clave_mvp": "Uploader que mapea columnas y exporta CSV/JSON"
-        }
-    
-    return {
-        "from": "heuristic",
-        "nombre_comercial": "IdeaLab-Core",
-        "categoria": "General",
-        "arquitectura_sugerida": "Microservicio REST (FastAPI) + worker",
-        "funcionalidad_clave_mvp": "Endpoint que recibe problema y devuelve plan técnico"
-    }
+    except Exception as e:
+        return {"from": "error", "error": str(e)}

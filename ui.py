@@ -90,7 +90,7 @@ else:
                 
                 with c2:
                     if not is_analyzed:
-                        if st.button("Analizar ⚡", key=f"ai_{row['id']}"):
+                        if st.button("Guardar Análisis ⚡", key=f"ai_{row['id']}", help="Analizar y guardar en DB"):
                             with st.spinner("Generando arquitectura..."):
                                 try:
                                     resp = requests.post(f"{api_base}/fricciones/{row['id']}/analizar")
@@ -100,3 +100,24 @@ else:
                                         st.error("Error en análisis")
                                 except Exception as e:
                                     st.error(f"Error: {e}")
+                                    
+                    # Nuevo Botón Ad-Hoc (Directo a Gemini sin DB)
+                    if st.button("Analizar con IA 🧠", key=f"live_{row['id']}", type="primary"):
+                        with st.spinner("Consultando a Gemini..."):
+                            try:
+                                res_ia = requests.post(f"{api_base}/analizar-con-ia", json={"description": row['description']})
+                                
+                                if res_ia.status_code == 200:
+                                    data_ia = res_ia.json().get("analisis", {})
+                                    
+                                    # UI Bonita (Cards coloridas de Streamlit)
+                                    st.success("✨ ¡Completado!")
+                                    st.info(f"🏷️ **Categoría:** {data_ia.get('categoria', 'N/A')}")
+                                    st.warning(f"🔥 **Impacto:** {str(data_ia.get('impacto', 'N/A')).upper()}")
+                                    st.error(f"🎯 **Causa:** {data_ia.get('tipo_problema', 'N/A')}")
+                                    st.success(f"💡 **Idea:** {data_ia.get('idea_solucion', 'N/A')}")
+                                else:
+                                    detalles = res_ia.json().get("detail", "Error desconocido")
+                                    st.error(f"Fallo del modelo: {detalles}")
+                            except Exception as e:
+                                st.error(f"Error de red: {e}")
