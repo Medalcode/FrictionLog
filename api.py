@@ -1,26 +1,22 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from contextlib import asynccontextmanager
+import httpx
 import asyncio
 import core
 from llm_client import analizar_friccion, API_KEY
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    core.init_db()
-    yield
 
-app = FastAPI(title="FrictionLog API", lifespan=lifespan)
+# Ya no usamos asynccontextmanager ni init_db local, PocketBase persiste
+app = FastAPI(title="FrictionLog API")
 
 class FrictionInput(BaseModel):
     user_id: str = "anonymous"
-    description: str = Field(..., min_length=10, description="Descripción del problema, obligatoria y al menos de 10 caracteres")
+    description: str = Field(..., min_length=10, description="Descripción del problema")
     severity: int = Field(1, ge=1, le=5)
 
 class AnalyzeInput(BaseModel):
-    description: str = Field(..., min_length=5, description="El problema o fricción a analizar")
+    description: str = Field(..., min_length=5)
 
-# Pydantic Models para la validación de la salida (Response Data)
 class IAAnalysisData(BaseModel):
     categoria: str
     tipo_problema: str
@@ -31,100 +27,96 @@ class IAResponseWrapper(BaseModel):
     analisis: IAAnalysisData
 
 @app.post("/registrar-friccion")
-def registrar_friccion(f: FrictionInput):
-    conn = core.get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO fricciones (user_id, description, severity) VALUES (?,?,?)",
-            (f.user_id, f.description, f.severity)
-        )
-        conn.commit()
-        last_id = cur.lastrowid
-        return {"status": "ok", "id": last_id}
-    finally:
-        conn.close()
+async def registrar_friccion(f: FrictionInput):
+    """Guarda directamente en PocketBase usando su API REST"""
+    async with httpx.AsyncClient() as client:
+        payload = {
+            "user_id": f.user_id,
+            "description": f.description,
+            "severity": f.severity
+        }
+        res = await client.post(f"{core.PB_URL}/api/collections/fricciones/records", json=payload)
+        
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Error en PocketBase: {res.text}")
+            
+        return {"status": "ok", "id": res.json().get("id")}
 
 @app.get("/fricciones")
-def list_fricciones(limit: int = 50):
-    conn = core.get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            SELECT id, user_id, description, severity, created_at, 
-                   nombre_comercial, categoria, arquitectura, mvp_features 
-            FROM fricciones ORDER BY created_at DESC LIMIT ?
-        """, (limit,))
-        rows = cur.fetchall()
+async def list_fricciones(limit: int = 50):
+    """Recupera la lista de ficciones directo de PocketBase, ordenadas por más recientes"""
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records?sort=-created&perPage={limit}")
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail="Error al buscar en PocketBase")
+            
+        # PocketBase devuelve la lista bajo la clave "items"
+        items = res.json().get("items", [])
+        
+        # Mapeamos para mantener compatibilidad total con ui.py (ej. "created_at", etc)
+        # Nota: Pocketbase devuelve el timestamp en el campo 'created'
         return [{
-            "id": r[0], "user_id": r[1], "description": r[2], "severity": r[3],
-            "created_at": r[4], "nombre_comercial": r[5], "categoria": r[6],
-            "arquitectura": r[7], "mvp_features": r[8]
-        } for r in rows]
-    finally:
-        conn.close()
+            "id": item.get("id"),
+            "user_id": item.get("user_id", "anonymous"),
+            "description": item.get("description", ""),
+            "severity": item.get("severity", 1),
+            "created_at": item.get("created", ""),
+            "categoria": item.get("categoria"),
+            "tipo_problema": item.get("tipo_problema"),
+            "impacto": item.get("impacto"),
+            "idea_solucion": item.get("idea_solucion"),
+            "nombre_comercial": item.get("tipo_problema"), # Compatibilidad hacia atrás
+            "arquitectura": item.get("impacto"),           
+            "mvp_features": item.get("idea_solucion")
+        } for item in items]
 
 @app.post("/fricciones/{friction_id}/analizar")
-async def analyze_friction(friction_id: int):
-    conn = core.get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT description FROM fricciones WHERE id = ?", (friction_id,))
-    row = cur.fetchone()
-    
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Friction not found")
+async def analyze_friction(friction_id: str):
+    """
+    Obtiene la fricción de PocketBase, la analiza con Gemini,
+    y guarda el resultado (PATCH) de vuelta en PocketBase.
+    Notar que PocketBase usa hashes (cadenas alfanuméricas) como friction_id, no int.
+    """
+    async with httpx.AsyncClient() as client:
+        # 1. Traer texto
+        get_res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+        if get_res.status_code != 200:
+            raise HTTPException(status_code=404, detail="Fricción no encontrada en PocketBase")
+            
+        description = get_res.json().get("description", "")
         
-    analysis = await core.analyze_with_ai(row[0])
-    res = analysis.get("response", {})
-    
-    cat = res.get("categoria", "Unknown")
-    tipo = res.get("tipo_problema", "Desconocido")
-    imp = res.get("impacto", "Desconocido")
-    idea = res.get("idea_solucion", "Sin idea general")
-
-    try:
-        cur.execute("""
-            UPDATE fricciones 
-            SET categoria = ?, tipo_problema = ?, impacto = ?, idea_solucion = ?
-            WHERE id = ?
-        """, (cat, tipo, imp, idea, friction_id))
-        conn.commit()
+        # 2. Analizar con Gemini
+        analysis = await core.analyze_with_ai(description)
+        res_ia = analysis.get("response", {})
+        
+        # 3. Guardar el resultado en la misma fila en PocketBase (UPDATE / PATCH)
+        patch_payload = {
+            "categoria": res_ia.get("categoria", "Desconocida"),
+            "tipo_problema": res_ia.get("tipo_problema", "Desconocido"),
+            "impacto": res_ia.get("impacto", "Desconocido"),
+            "idea_solucion": res_ia.get("idea_solucion", "Sin sugerencia")
+        }
+        
+        patch_res = await client.patch(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}", json=patch_payload)
+        if patch_res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Error al actualizar IA: {patch_res.text}")
+            
         return {"status": "ok", "analysis": analysis}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
 
 @app.post("/analizar-con-ia", response_model=IAResponseWrapper)
 async def api_analize_friction_endpoint(input_data: AnalyzeInput):
-    """
-    Endpoint directo y agnóstico a la DB para analizar texto libre usando IA Gen.
-    """
-    # Manejo de error si no hay API KEY
+    """ Endpoint Ad-hoc/Live: Sigue funcionando igual """
     if not API_KEY:
-        raise HTTPException(
-            status_code=500, 
-            detail="La configuración de GOOGLE_API_KEY no existe en el entorno del servidor."
-        )
+        raise HTTPException(status_code=500, detail="API KEY de Google no configurada.")
         
     try:
-        # Se ejecuta en un thread para evitar bloquear el Event Loop de tu app asíncrona (FastAPI)
         resultado_ia = await asyncio.to_thread(analizar_friccion, input_data.description)
-        
-        # Como llm_client devuelve un dict con valores defaults de error, verificamos si falló la IA
         if "Error" in resultado_ia.get("tipo_problema", ""):
-            raise HTTPException(
-                status_code=502, 
-                detail=f"Fallo en la inferencia del modelo Gemini: {resultado_ia.get('tipo_problema')}"
-            )
+            raise HTTPException(status_code=502, detail=f"Fallo Gemini: {resultado_ia.get('tipo_problema')}")
             
-        # Pydantic (IAResponseWrapper) validará automáticamente que el dict encaje en la salida
         return {"analisis": resultado_ia}
         
     except HTTPException:
-        # Relanzamos si es nuestro propio error controlado
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error inesperado en el servidor: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado: {str(e)}")

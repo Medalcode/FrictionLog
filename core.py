@@ -1,33 +1,11 @@
-import sqlite3
-import os
 import asyncio
-from typing import Optional, List, Dict, Any
+import os
+from typing import Dict, Any
 
 from llm_client import analizar_friccion
 
-DB_PATH = "frictionlog.db"
-
-def get_db_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-def init_db():
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS fricciones (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT,
-        description TEXT,
-        severity INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        nombre_comercial TEXT,
-        categoria TEXT,
-        arquitectura TEXT,
-        mvp_features TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
+# Pocketbase endpoint por defecto
+PB_URL = os.getenv("POCKETBASE_URL", "http://127.0.0.1:8090")
 
 async def analyze_with_ai(description: str) -> Dict[str, Any]:
     """
