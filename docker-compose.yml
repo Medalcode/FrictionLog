@@ -2,12 +2,10 @@ services:
   api:
     build: .
     container_name: frictionlog-api
-    command: gunicorn api:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-    volumes:
-      - ./frictionlog.db:/app/frictionlog.db
+    command: gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
     environment:
-      - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434}
-      - LLM_MODEL=${LLM_MODEL:-llama3}
+      - POCKETBASE_URL=${POCKETBASE_URL:-http://host.docker.internal:8090}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -19,7 +17,6 @@ services:
     container_name: frictionlog-ui
     command: streamlit run ui.py --server.port 8501 --server.address 0.0.0.0
     volumes:
-      - ./frictionlog.db:/app/frictionlog.db
       - ./ui.py:/app/ui.py:ro
     depends_on:
       - api
