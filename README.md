@@ -18,16 +18,20 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 
 ### 🚀 Quickstart
 
-#### Opción A: Docker (Recomendado)
+#### Opción A: Docker + PocketBase (Recomendado)
 
-1. **Clona y levanta**
+1. **Configura tu Base de Datos**
+   Descarga y ejecuta [PocketBase](https://pocketbase.io/). Importa el archivo `pocketbase_schema.json` desde su panel de administrador (`http://127.0.0.1:8090/_/`).
+
+2. **Clona y levanta**
 
    ```bash
    git clone https://github.com/Medalcode/FrictionLog.git && cd FrictionLog
+   export GOOGLE_API_KEY="tu_clave_aqui" # Necesario para Gemini
    docker-compose up --build -d
    ```
 
-2. **Servicios**
+3. **Servicios**
    - **Dashboard:** [http://localhost:8501](http://localhost:8501)
    - **API:** [http://localhost:8000/docs](http://localhost:8000/docs)
 
@@ -44,8 +48,9 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
    source venv/bin/activate
    pip install -r requirements.txt
    
-   # Configurar API de Gemini
+   # Configurar Entorno e IPs
    export GOOGLE_API_KEY="tu_clave_aqui" # En Windows usa: $env:GOOGLE_API_KEY="tu_clave"
+   export POCKETBASE_URL="http://127.0.0.1:8090"
    
    # Ejecuta API y Dashboard (en terminales separadas)
    uvicorn api:app --reload
@@ -82,7 +87,7 @@ Arquitectura desacoplada para máxima hackeabilidad.
 - **`llm_client.py`**: Cliente estricto Pydantic + Google Gemini (1.5 Flash).
 - **`ui.py`**: Dashboard visual con Streamlit (Maneja Live Analytics y persistencia base).
 - **`docs/`**: Documentación técnica y bitácora.
-- **DB:** SQLite (cero configuración).
+- **DB:** PocketBase (Reemplaza a SQLite para soportar persistencia distribuida y Serverless en Vercel/Cloud Run).
 - **IA:** Google AI Studio (Gemini) vía SDK oficial.
 
 ---
