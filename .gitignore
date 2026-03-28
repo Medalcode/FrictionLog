@@ -1,0 +1,22 @@
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Variables de entorno
+.env
+.env.local
+
+# Bases de datos y archivos binarios/temporales
+*.db
+frictionlog.db
+pb_data/
+pb.zip
+pocketbase.exe
+pocketbase
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
