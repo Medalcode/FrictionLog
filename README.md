@@ -68,6 +68,16 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 3. **Visualiza y Prioriza**  
    Abre el dashboard en `http://localhost:8501` para ver qué deberías construir primero.
 
+### ☁️ Despliegue en Vercel (Serverless)
+
+FrictionLog está completamente optimizado para entornos Serverless y Zero-Config en Vercel (gracias a su entrypoint nativo `main.py`).
+
+1. Sube tu código a GitHub.
+2. Crea un nuevo proyecto en Vercel e importa el repositorio.
+3. En **Environment Variables**, añade:
+   * `GOOGLE_API_KEY`: Tu clave de Google AI Studio.
+   * `POCKETBASE_URL`: La URL pública donde tengas alojado tu PocketBase.
+
 ---
 
 ### 💡 Casos de Uso
