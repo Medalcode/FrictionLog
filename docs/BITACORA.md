@@ -55,6 +55,26 @@ Cada entrada significativa debe seguir este formato:
 
 ---
 
+### [2026-05-21] Corrección de Mapeo de Claves de IA y Arnés de Pruebas
+
+**Contexto**: Se identificó un desfase crítico en las claves de la respuesta de IA al guardarla en PocketBase, así como una suite de pruebas unitarias rota tras la migración a PocketBase.
+
+**Decisiones Técnicas**:
+- **Alineación de Claves**: Modificar el guardado de análisis en `api.py` para mapear de forma explícita las claves en formato UI/Gemini (`nombre_comercial`, `arquitectura_sugerida`, `funcionalidad_clave_mvp`) a las claves de esquema de la base de datos de PocketBase (`tipo_problema`, `impacto`, `idea_solucion`).
+- **Simulación de Base de Datos para Tests**: Eliminar el uso físico de bases de datos SQLite en las pruebas. Implementar mocking a nivel de cliente HTTP (`httpx.AsyncClient`) usando fixtures de pytest, logrando pruebas unitarias rápidas y desacopladas de red/infraestructura local de PocketBase.
+- **Mocking de IA**: Simular las respuestas del modelo Gemini para las pruebas de integración (`/fricciones/{friction_id}/analizar` y `/analizar-con-ia`) para evitar dependencias de la variable de entorno `GOOGLE_API_KEY` durante las pruebas de integración locales.
+
+**Cambios Realizados**:
+- Corregido `api.py` para leer y mapear las propiedades devueltas por `core.analyze_with_ai` de manera congruente.
+- Reescrito completamente `tests/test_api.py` para utilizar fixtures con mocking de `httpx.AsyncClient` y de `llm_client`.
+- Añadido test unitario para verificar el endpoint `/analizar-con-ia`.
+
+**Deuda Identificada**:
+- Faltan pruebas que verifiquen las llamadas HTTP erróneas de PocketBase (ej. respuesta 502/500).
+- Automatización de las pruebas en un entorno CI/CD.
+
+---
+
 ## Backlog de Decisiones Pendientes (To-Decide)
 
 - **Persistencia de vectores**: ¿Usar `pgvector` en el futuro o una librería ligera como `ChromaDB` local para deduplicación semántica?

@@ -109,6 +109,18 @@ Consulta nuestras guías internas para contribuir (ahora en `/docs`):
 - [Skills y Estándares](./docs/skills.md): Guías técnicas y mejores prácticas.
 - [Bitácora](./docs/BITACORA.md): Registro de decisiones arquitectónicas.
 
+#### 🧪 Pruebas Unitarias y de Integración (Docker)
+Puedes ejecutar toda la suite de pruebas unitarias localmente de forma aislada a través de Docker Compose:
+
+```bash
+# Método A: Usando el script helper (dale permisos de ejecución primero)
+chmod +x run_tests_docker.sh
+./run_tests_docker.sh
+
+# Método B: Comando directo
+docker-compose run --rm test
+```
+
 ---
 
 ### 🔮 Roadmap

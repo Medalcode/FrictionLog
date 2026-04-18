@@ -26,6 +26,16 @@ services:
     networks:
       - friction-net
 
+  test:
+    build: .
+    container_name: frictionlog-test
+    command: pytest tests/
+    environment:
+      - POCKETBASE_URL=${POCKETBASE_URL:-http://host.docker.internal:8090}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    networks:
+      - friction-net
+
 networks:
   friction-net:
     driver: bridge

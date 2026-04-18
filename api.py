@@ -92,9 +92,9 @@ async def analyze_friction(friction_id: str):
         # 3. Guardar el resultado en la misma fila en PocketBase (UPDATE / PATCH)
         patch_payload = {
             "categoria": res_ia.get("categoria", "Desconocida"),
-            "tipo_problema": res_ia.get("tipo_problema", "Desconocido"),
-            "impacto": res_ia.get("impacto", "Desconocido"),
-            "idea_solucion": res_ia.get("idea_solucion", "Sin sugerencia")
+            "tipo_problema": res_ia.get("nombre_comercial", "Desconocido"),
+            "impacto": res_ia.get("arquitectura_sugerida", "Desconocido"),
+            "idea_solucion": res_ia.get("funcionalidad_clave_mvp", "Sin sugerencia")
         }
         
         patch_res = await client.patch(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}", json=patch_payload)
