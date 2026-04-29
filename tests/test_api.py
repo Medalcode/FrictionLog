@@ -1,14 +1,17 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from fastapi.testclient import TestClient
+from unittest.mock import MagicMock
+
 import httpx
+import pytest
+from fastapi.testclient import TestClient
+
 import api as api_module
+
 
 @pytest.fixture(autouse=True)
 def mock_pb_client(monkeypatch):
     """Fixture to mock PocketBase HTTP requests for all tests."""
     db_records = {}
-    
+
     async def mock_post_impl(url, json=None, **kwargs):
         if "api/collections/fricciones/records" in url:
             record_id = f"mock_{len(db_records) + 1}"
@@ -24,13 +27,13 @@ def mock_pb_client(monkeypatch):
                 "idea_solucion": None
             }
             db_records[record_id] = record
-            
+
             mock_res = MagicMock(spec=httpx.Response)
             mock_res.status_code = 200
             mock_res.json.return_value = record
             return mock_res
         raise ValueError(f"Unmocked POST URL: {url}")
-        
+
     async def mock_get_impl(url, **kwargs):
         if "api/collections/fricciones/records?" in url or url.endswith("api/collections/fricciones/records"):
             mock_res = MagicMock(spec=httpx.Response)
@@ -50,7 +53,7 @@ def mock_pb_client(monkeypatch):
                 mock_res.text = "Not Found"
                 return mock_res
         raise ValueError(f"Unmocked GET URL: {url}")
-        
+
     async def mock_patch_impl(url, json=None, **kwargs):
         if "api/collections/fricciones/records/" in url:
             record_id = url.split("/")[-1]
@@ -66,11 +69,11 @@ def mock_pb_client(monkeypatch):
                 mock_res.text = "Not Found"
                 return mock_res
         raise ValueError(f"Unmocked PATCH URL: {url}")
-        
+
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post_impl)
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get_impl)
     monkeypatch.setattr(httpx.AsyncClient, "patch", mock_patch_impl)
-    
+
     return db_records
 
 def test_registrar_friccion():
@@ -90,7 +93,7 @@ def test_list_fricciones():
     with TestClient(api_module.app) as client:
         # Create one
         client.post("/registrar-friccion", json={"description": "Test list description long", "severity": 1})
-        
+
         response = client.get("/fricciones")
         assert response.status_code == 200
         data = response.json()
@@ -106,18 +109,18 @@ def test_analyze_friction_persistence(monkeypatch):
         "impacto": "alto",
         "idea_solucion": "implementar caché con redis para endpoints de lectura"
     })
-    
+
     with TestClient(api_module.app) as client:
         # 1. Create friction
         resp = client.post("/registrar-friccion", json={"description": "Test persistence long description", "severity": 2})
         friction_id = resp.json()["id"]
-        
+
         # 2. Analyze it
         resp = client.post(f"/fricciones/{friction_id}/analizar")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        
+
         # 3. Verify persistence
         resp = client.get("/fricciones")
         items = resp.json()
@@ -139,7 +142,7 @@ def test_analizar_con_ia(monkeypatch):
         "impacto": "alto",
         "idea_solucion": "implementar caché con redis para endpoints de lectura"
     })
-    
+
     with TestClient(api_module.app) as client:
         response = client.post("/analizar-con-ia", json={"description": "Test description long enough"})
         assert response.status_code == 200

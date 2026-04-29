@@ -1,7 +1,7 @@
-import os
 import json
 import logging
-from typing import Dict, Any
+import os
+from typing import Any
 
 import google.generativeai as genai
 from google.api_core.exceptions import GoogleAPIError, RetryError
@@ -19,7 +19,7 @@ else:
     genai.configure(api_key=API_KEY)
 
 
-def analizar_friccion(description: str) -> Dict[str, Any]:
+def analizar_friccion(description: str) -> dict[str, Any]:
     """
     Analiza una descripción de fricción utilizando la API de Google Gemini.
     
@@ -57,7 +57,7 @@ ESQUEMA EJEMPLO ESPERADO:
     try:
         # Usamos gemini-1.5-flash: Recomendado para operaciones rápidas JSON y baja latencia en backends
         model = genai.GenerativeModel('gemini-1.5-flash')
-        
+
         # GenerationConfig: Fuerza la salida requerida explícitamente a application/json
         generation_config = genai.types.GenerationConfig(
             response_mime_type="application/json",
@@ -68,7 +68,7 @@ ESQUEMA EJEMPLO ESPERADO:
         response = model.generate_content(
             prompt,
             generation_config=generation_config,
-            request_options={"timeout": 15.0} 
+            request_options={"timeout": 15.0}
         )
 
         if not response.text:
@@ -92,7 +92,7 @@ ESQUEMA EJEMPLO ESPERADO:
         return _default_error_response("Error interno inesperado del servidor")
 
 
-def _default_error_response(motivo: str = "Error desconocido") -> Dict[str, Any]:
+def _default_error_response(motivo: str = "Error desconocido") -> dict[str, Any]:
     """
     Retorna un diccionario de fallback para evitar excepciones no controladas
     que rompan nuestros endpoints (Fail-safe pattern).
