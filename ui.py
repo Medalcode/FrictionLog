@@ -1,9 +1,10 @@
+import os
 import streamlit as st
 import requests
 import pandas as pd
 import time
 
-API_URL_DEFAULT = "http://127.0.0.1:8000"
+API_URL_DEFAULT = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="FrictionLog - Hub de Innovación", layout="wide")
 st.title("🚀 FrictionLog")
@@ -29,6 +30,15 @@ def register_friction(api_url, description, severity):
         )
         if r.status_code == 200:
             return True, r.json()
+        return False, r.text
+    except Exception as e:
+        return False, str(e)
+
+def delete_friction(api_url, friction_id):
+    try:
+        r = requests.delete(f"{api_url}/fricciones/{friction_id}")
+        if r.status_code == 200:
+            return True, "Ok"
         return False, r.text
     except Exception as e:
         return False, str(e)
@@ -121,3 +131,13 @@ else:
                                     st.error(f"Fallo del modelo: {detalles}")
                             except Exception as e:
                                 st.error(f"Error de red: {e}")
+                                
+                    if st.button("Borrar 🗑️", key=f"del_{row['id']}", help="Eliminar permanentemente"):
+                        ok, res = delete_friction(api_base, row['id'])
+                        if ok:
+                            st.success("Fricción borrada")
+                            time.sleep(1)
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Error al borrar: {res}")

@@ -9,14 +9,15 @@ def mock_pb_client(monkeypatch):
     """Fixture to mock PocketBase HTTP requests for all tests."""
     db_records = {}
     
-    async def mock_post_impl(url, json=None, **kwargs):
+    async def mock_post_impl(self, url, **kwargs):
+        json_data = kwargs.get("json") or {}
         if "api/collections/fricciones/records" in url:
             record_id = f"mock_{len(db_records) + 1}"
             record = {
                 "id": record_id,
-                "user_id": json.get("user_id", "anonymous") if json else "anonymous",
-                "description": json.get("description", "") if json else "",
-                "severity": json.get("severity", 1) if json else 1,
+                "user_id": json_data.get("user_id", "anonymous"),
+                "description": json_data.get("description", ""),
+                "severity": json_data.get("severity", 1),
                 "created": "2026-05-21T19:00:00Z",
                 "categoria": None,
                 "tipo_problema": None,
@@ -31,7 +32,7 @@ def mock_pb_client(monkeypatch):
             return mock_res
         raise ValueError(f"Unmocked POST URL: {url}")
         
-    async def mock_get_impl(url, **kwargs):
+    async def mock_get_impl(self, url, **kwargs):
         if "api/collections/fricciones/records?" in url or url.endswith("api/collections/fricciones/records"):
             mock_res = MagicMock(spec=httpx.Response)
             mock_res.status_code = 200
@@ -51,11 +52,12 @@ def mock_pb_client(monkeypatch):
                 return mock_res
         raise ValueError(f"Unmocked GET URL: {url}")
         
-    async def mock_patch_impl(url, json=None, **kwargs):
+    async def mock_patch_impl(self, url, **kwargs):
+        json_data = kwargs.get("json", {})
         if "api/collections/fricciones/records/" in url:
             record_id = url.split("/")[-1]
             if record_id in db_records:
-                db_records[record_id].update(json)
+                db_records[record_id].update(json_data)
                 mock_res = MagicMock(spec=httpx.Response)
                 mock_res.status_code = 200
                 mock_res.json.return_value = db_records[record_id]
@@ -67,9 +69,25 @@ def mock_pb_client(monkeypatch):
                 return mock_res
         raise ValueError(f"Unmocked PATCH URL: {url}")
         
+    async def mock_delete_impl(self, url, **kwargs):
+        if "api/collections/fricciones/records/" in url:
+            record_id = url.split("/")[-1]
+            if record_id in db_records:
+                del db_records[record_id]
+                mock_res = MagicMock(spec=httpx.Response)
+                mock_res.status_code = 204
+                return mock_res
+            else:
+                mock_res = MagicMock(spec=httpx.Response)
+                mock_res.status_code = 404
+                mock_res.text = "Not Found"
+                return mock_res
+        raise ValueError(f"Unmocked DELETE URL: {url}")
+        
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post_impl)
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get_impl)
     monkeypatch.setattr(httpx.AsyncClient, "patch", mock_patch_impl)
+    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete_impl)
     
     return db_records
 
@@ -149,3 +167,37 @@ def test_analizar_con_ia(monkeypatch):
         assert data["analisis"]["tipo_problema"] == "latencia alta en base de datos"
         assert data["analisis"]["impacto"] == "alto"
         assert data["analisis"]["idea_solucion"] == "implementar caché con redis para endpoints de lectura"
+
+def test_delete_friction():
+    with TestClient(api_module.app) as client:
+        # Create one
+        resp = client.post("/registrar-friccion", json={"description": "Friction to be deleted soon", "severity": 1})
+        friction_id = resp.json()["id"]
+        
+        # Verify it exists
+        resp_get = client.get("/fricciones")
+        assert any(item["id"] == friction_id for item in resp_get.json())
+        
+        # Delete it
+        resp_del = client.delete(f"/fricciones/{friction_id}")
+        assert resp_del.status_code == 200
+        assert resp_del.json()["status"] == "ok"
+        
+        # Verify it's gone
+        resp_get2 = client.get("/fricciones")
+        assert not any(item["id"] == friction_id for item in resp_get2.json())
+
+def test_pocketbase_502_error(monkeypatch):
+    """Test that the API correctly bubbles up 5xx errors from PocketBase."""
+    async def mock_get_502(self, url, **kwargs):
+        mock_res = MagicMock(spec=httpx.Response)
+        mock_res.status_code = 502
+        mock_res.text = "Bad Gateway"
+        return mock_res
+        
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get_502)
+    
+    with TestClient(api_module.app) as client:
+        response = client.get("/fricciones")
+        assert response.status_code == 502
+        assert "Error al buscar en PocketBase" in response.json()["detail"]

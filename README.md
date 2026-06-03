@@ -60,9 +60,13 @@ Como desarrolladores o Indie Hackers, a menudo buscamos ideas "revolucionarias" 
 2. **Registra una fricción (tu primer pain-point)**
 
    ```bash
+   # Opción 1: Vía cURL
    curl -X POST http://127.0.0.1:8000/registrar-friccion \
         -H "Content-Type: application/json" \
         -d '{"description": "Odio copiar datos de facturas PDF a Excel manualmente", "severity": 4}'
+
+   # Opción 2: Usando nuestra utilidad CLI (Recomendado)
+   python cli.py log "Odio copiar datos de facturas PDF a Excel manualmente"
    ```
 
 3. **Visualiza y Prioriza**  
@@ -96,6 +100,7 @@ Arquitectura desacoplada para máxima hackeabilidad.
 - **`core.py`**: Motor de lógica y orquestador hacia la BD.
 - **`llm_client.py`**: Cliente estricto Pydantic + Google Gemini (1.5 Flash).
 - **`ui.py`**: Dashboard visual con Streamlit (Maneja Live Analytics y persistencia base).
+- **`cli.py`**: Utilidad de línea de comandos para registro ultra-rápido.
 - **`docs/`**: Documentación técnica y bitácora.
 - **DB:** PocketBase (Reemplaza a SQLite para soportar persistencia distribuida y Serverless en Vercel/Cloud Run).
 - **IA:** Google AI Studio (Gemini) vía SDK oficial.
@@ -126,7 +131,9 @@ docker-compose run --rm test
 ### 🔮 Roadmap
 
 - [x] **Persistencia IA:** Guardar los análisis generados automáticamente en base de datos.
-- [ ] **CLI Wrapper:** `fl log "esto apesta"` para registro instantáneo.
+- [x] **Gestión CRUD y UI:** Botón funcional para descartar/borrar fricciones inútiles.
+- [x] **CLI Wrapper:** `python cli.py log "esto apesta"` para registro instantáneo.
+- [x] **CI/CD:** Github Actions pipeline para validación automática (Pytest).
 - [ ] **Smart Grouping:** Detectar fricciones duplicadas semánticamente.
 
 ---

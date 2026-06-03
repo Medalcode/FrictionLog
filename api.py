@@ -120,3 +120,12 @@ async def api_analize_friction_endpoint(input_data: AnalyzeInput):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error inesperado: {str(e)}")
+
+@app.delete("/fricciones/{friction_id}")
+async def delete_friction(friction_id: str):
+    """Elimina una fricción específica en PocketBase"""
+    async with httpx.AsyncClient() as client:
+        res = await client.delete(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+        if res.status_code not in (200, 204):
+            raise HTTPException(status_code=502, detail=f"Error al eliminar en PocketBase: {res.text}")
+        return {"status": "ok"}
