@@ -25,7 +25,7 @@ def fetch_fricciones(api_url):
 def register_friction(api_url, description, severity):
     try:
         r = requests.post(
-            f"{api_url}/registrar-friccion", 
+            f"{api_url}/registrar-friccion",
             json={"description": description, "severity": severity}
         )
         if r.status_code == 200:
@@ -48,14 +48,14 @@ if isinstance(data, dict) and data.get("error"):
     st.error(f"Error de conexión con la API: {data.get('error')}")
 else:
     df = pd.DataFrame(data)
-    
+
     # Sidebar: Registro
     st.sidebar.subheader("Nueva Fricción")
     with st.sidebar.form("new_friction_form"):
         new_desc = st.text_area("¿Qué te causó fricción hoy?")
         new_severity = st.slider("Severidad", 1, 5, 3)
         submitted = st.form_submit_button("Registrar 🚀")
-        
+
         if submitted:
             if len(new_desc) < 10:
                 st.error("La descripción debe tener al menos 10 caracteres.")
@@ -74,18 +74,18 @@ else:
         st.info("No hay fricciones. ¡Captura la primera en la barra lateral!")
     else:
         st.subheader("Oportunidades de Innovación")
-        
+
         # Simple priority calculation
         df["severity"] = df["severity"].fillna(1).astype(int)
         df = df.sort_values("severity", ascending=False)
 
         for _, row in df.iterrows():
             is_analyzed = row.get("nombre_comercial") is not None and row.get("nombre_comercial") != "N/A"
-            
+
             label = f"#{row['id']} | Sev: {row['severity']} | {row['description'][:50]}..."
             if is_analyzed:
                 label += f" ✅ {row['nombre_comercial']}"
-            
+
             with st.expander(label):
                 c1, c2 = st.columns([3, 1])
                 with c1:
@@ -97,7 +97,7 @@ else:
                         st.write(f"**Categoría:** {row.get('categoria')}")
                         st.write(f"**Arquitectura:** {row.get('arquitectura')}")
                         st.success(f"**MVP Features:** {row.get('mvp_features')}")
-                
+
                 with c2:
                     if not is_analyzed:
                         if st.button("Guardar Análisis ⚡", key=f"ai_{row['id']}", help="Analizar y guardar en DB"):
@@ -110,16 +110,16 @@ else:
                                         st.error("Error en análisis")
                                 except Exception as e:
                                     st.error(f"Error: {e}")
-                                    
+
                     # Nuevo Botón Ad-Hoc (Directo a Gemini sin DB)
                     if st.button("Analizar con IA 🧠", key=f"live_{row['id']}", type="primary"):
                         with st.spinner("Consultando a Gemini..."):
                             try:
                                 res_ia = requests.post(f"{api_base}/analizar-con-ia", json={"description": row['description']})
-                                
+
                                 if res_ia.status_code == 200:
                                     data_ia = res_ia.json().get("analisis", {})
-                                    
+
                                     # UI Bonita (Cards coloridas de Streamlit)
                                     st.success("✨ ¡Completado!")
                                     st.info(f"🏷️ **Categoría:** {data_ia.get('categoria', 'N/A')}")
