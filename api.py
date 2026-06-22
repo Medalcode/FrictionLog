@@ -1,22 +1,35 @@
-import asyncio
+import os
+from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import core
-from llm_client import API_KEY, analizar_friccion
 
-# Ya no usamos asynccontextmanager ni init_db local, PocketBase persiste
-app = FastAPI(title="FrictionLog API")
+FRICTIONLOG_API_KEY = os.getenv("FRICTIONLOG_API_KEY")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with httpx.AsyncClient() as client:
+        app.state.http_client = client
+        yield
+
+
+app = FastAPI(title="FrictionLog API", lifespan=lifespan)
+
 
 class FrictionInput(BaseModel):
     user_id: str = "anonymous"
     description: str = Field(..., min_length=10, description="Descripción del problema")
     severity: int = Field(1, ge=1, le=5)
 
+
 class AnalyzeInput(BaseModel):
     description: str = Field(..., min_length=5)
+
 
 class IAAnalysisData(BaseModel):
     categoria: str
@@ -24,39 +37,46 @@ class IAAnalysisData(BaseModel):
     impacto: str
     idea_solucion: str
 
+
 class IAResponseWrapper(BaseModel):
     analisis: IAAnalysisData
 
+
+async def _check_auth(request: Request):
+    if FRICTIONLOG_API_KEY:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {FRICTIONLOG_API_KEY}":
+            raise HTTPException(status_code=401, detail="API Key inválida o ausente")
+
+
 @app.post("/registrar-friccion")
-async def registrar_friccion(f: FrictionInput):
-    """Guarda directamente en PocketBase usando su API REST"""
-    async with httpx.AsyncClient() as client:
-        payload = {
-            "user_id": f.user_id,
-            "description": f.description,
-            "severity": f.severity
-        }
-        res = await client.post(f"{core.PB_URL}/api/collections/fricciones/records", json=payload)
+async def registrar_friccion(f: FrictionInput, request: Request):
+    await _check_auth(request)
+    client: httpx.AsyncClient = request.app.state.http_client
+    payload = {
+        "user_id": f.user_id,
+        "description": f.description,
+        "severity": f.severity,
+    }
+    res = await client.post(f"{core.PB_URL}/api/collections/fricciones/records", json=payload)
+    if res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Error en PocketBase: {res.text}")
+    return {"status": "ok", "id": res.json().get("id")}
 
-        if res.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Error en PocketBase: {res.text}")
-
-        return {"status": "ok", "id": res.json().get("id")}
 
 @app.get("/fricciones")
-async def list_fricciones(limit: int = 50):
-    """Recupera la lista de ficciones directo de PocketBase, ordenadas por más recientes"""
-    async with httpx.AsyncClient() as client:
-        res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records?sort=-created&perPage={limit}")
-        if res.status_code != 200:
-            raise HTTPException(status_code=502, detail="Error al buscar en PocketBase")
+async def list_fricciones(request: Request, limit: int = 50):
+    await _check_auth(request)
+    client: httpx.AsyncClient = request.app.state.http_client
+    res = await client.get(
+        f"{core.PB_URL}/api/collections/fricciones/records?sort=-created&perPage={limit}"
+    )
+    if res.status_code != 200:
+        raise HTTPException(status_code=502, detail="Error al buscar en PocketBase")
 
-        # PocketBase devuelve la lista bajo la clave "items"
-        items = res.json().get("items", [])
-
-        # Mapeamos para mantener compatibilidad total con ui.py (ej. "created_at", etc)
-        # Nota: Pocketbase devuelve el timestamp en el campo 'created'
-        return [{
+    items = res.json().get("items", [])
+    return [
+        {
             "id": item.get("id"),
             "user_id": item.get("user_id", "anonymous"),
             "description": item.get("description", ""),
@@ -66,67 +86,69 @@ async def list_fricciones(limit: int = 50):
             "tipo_problema": item.get("tipo_problema"),
             "impacto": item.get("impacto"),
             "idea_solucion": item.get("idea_solucion"),
-            "nombre_comercial": item.get("tipo_problema"), # Compatibilidad hacia atrás
-            "arquitectura": item.get("impacto"),
-            "mvp_features": item.get("idea_solucion")
-        } for item in items]
+        }
+        for item in items
+    ]
+
 
 @app.post("/fricciones/{friction_id}/analizar")
-async def analyze_friction(friction_id: str):
-    """
-    Obtiene la fricción de PocketBase, la analiza con Gemini,
-    y guarda el resultado (PATCH) de vuelta en PocketBase.
-    Notar que PocketBase usa hashes (cadenas alfanuméricas) como friction_id, no int.
-    """
-    async with httpx.AsyncClient() as client:
-        # 1. Traer texto
-        get_res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
-        if get_res.status_code != 200:
-            raise HTTPException(status_code=404, detail="Fricción no encontrada en PocketBase")
+async def analyze_friction(friction_id: str, request: Request):
+    await _check_auth(request)
+    client: httpx.AsyncClient = request.app.state.http_client
 
-        description = get_res.json().get("description", "")
+    get_res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+    if get_res.status_code != 200:
+        raise HTTPException(status_code=404, detail="Fricción no encontrada")
 
-        # 2. Analizar con Gemini
-        analysis = await core.analyze_with_ai(description)
-        res_ia = analysis.get("response", {})
+    description = get_res.json().get("description", "")
+    analysis = await core.analyze_with_ai(description)
+    res_ia = analysis.get("response", {})
 
-        # 3. Guardar el resultado en la misma fila en PocketBase (UPDATE / PATCH)
-        patch_payload = {
-            "categoria": res_ia.get("categoria", "Desconocida"),
-            "tipo_problema": res_ia.get("nombre_comercial", "Desconocido"),
-            "impacto": res_ia.get("arquitectura_sugerida", "Desconocido"),
-            "idea_solucion": res_ia.get("funcionalidad_clave_mvp", "Sin sugerencia")
-        }
+    if "error" in res_ia:
+        raise HTTPException(status_code=502, detail=res_ia.get("idea_solucion", "Error de IA"))
 
-        patch_res = await client.patch(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}", json=patch_payload)
-        if patch_res.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Error al actualizar IA: {patch_res.text}")
+    patch_payload = {
+        "categoria": res_ia.get("categoria", "Desconocida"),
+        "tipo_problema": res_ia.get("tipo_problema", "Desconocido"),
+        "impacto": res_ia.get("impacto", "Desconocido"),
+        "idea_solucion": res_ia.get("idea_solucion", "Sin sugerencia"),
+    }
 
-        return {"status": "ok", "analysis": analysis}
+    patch_res = await client.patch(
+        f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}",
+        json=patch_payload,
+    )
+    if patch_res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Error al actualizar IA: {patch_res.text}")
+
+    return {"status": "ok", "analysis": res_ia}
+
 
 @app.post("/analizar-con-ia", response_model=IAResponseWrapper)
-async def api_analize_friction_endpoint(input_data: AnalyzeInput):
-    """ Endpoint Ad-hoc/Live: Sigue funcionando igual """
-    if not API_KEY:
-        raise HTTPException(status_code=500, detail="API KEY de Google no configurada.")
-
+async def api_analize_friction_endpoint(input_data: AnalyzeInput, request: Request):
+    await _check_auth(request)
     try:
-        resultado_ia = await asyncio.to_thread(analizar_friccion, input_data.description)
-        if "Error" in resultado_ia.get("tipo_problema", ""):
-            raise HTTPException(status_code=502, detail=f"Fallo Gemini: {resultado_ia.get('tipo_problema')}")
-
-        return {"analisis": resultado_ia}
-
+        resultado_ia = await core.analyze_with_ai(input_data.description)
+        res = resultado_ia.get("response", {})
+        if "error" in res:
+            raise HTTPException(status_code=502, detail=res.get("idea_solucion", "Error de IA"))
+        return {"analisis": res}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error inesperado: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado: {e!s}") from e
+
 
 @app.delete("/fricciones/{friction_id}")
-async def delete_friction(friction_id: str):
-    """Elimina una fricción específica en PocketBase"""
-    async with httpx.AsyncClient() as client:
-        res = await client.delete(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
-        if res.status_code not in (200, 204):
-            raise HTTPException(status_code=502, detail=f"Error al eliminar en PocketBase: {res.text}")
-        return {"status": "ok"}
+async def delete_friction(friction_id: str, request: Request):
+    await _check_auth(request)
+    client: httpx.AsyncClient = request.app.state.http_client
+    res = await client.delete(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+    if res.status_code not in (200, 204):
+        raise HTTPException(status_code=502, detail=f"Error al eliminar en PocketBase: {res.text}")
+    return {"status": "ok"}
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(_request: Request, exc: Exception):
+    return JSONResponse(status_code=500, content={"detail": str(exc)})

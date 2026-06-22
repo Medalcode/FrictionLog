@@ -2,10 +2,13 @@ services:
   api:
     build: .
     container_name: frictionlog-api
-    command: gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    command: gunicorn api:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
     environment:
       - POCKETBASE_URL=${POCKETBASE_URL:-http://host.docker.internal:8090}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - XAI_API_KEY=${XAI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - FRICTIONLOG_API_KEY=${FRICTIONLOG_API_KEY}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -16,8 +19,9 @@ services:
     build: .
     container_name: frictionlog-ui
     command: streamlit run ui.py --server.port 8501 --server.address 0.0.0.0
-    volumes:
-      - ./ui.py:/app/ui.py:ro
+    environment:
+      - API_URL=http://api:8000
+      - FRICTIONLOG_API_KEY=${FRICTIONLOG_API_KEY}
     depends_on:
       - api
     ports:
@@ -29,10 +33,13 @@ services:
   test:
     build: .
     container_name: frictionlog-test
-    command: pytest tests/
+    command: pytest tests/ -v
     environment:
       - POCKETBASE_URL=${POCKETBASE_URL:-http://host.docker.internal:8090}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - XAI_API_KEY=${XAI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - FRICTIONLOG_API_KEY=${FRICTIONLOG_API_KEY}
     networks:
       - friction-net
 

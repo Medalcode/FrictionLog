@@ -2,27 +2,58 @@
 
 ## Commands
 ```bash
-# Local dev (no Docker):
 pip install -r requirements.txt
-export GOOGLE_API_KEY="..." && export POCKETBASE_URL="http://127.0.0.1:8090"
-uvicorn api:app --reload                    # API (terminal 1)
-streamlit run ui.py                         # Dashboard (terminal 2)
+
+# Google Gemini (default)
+export LLM_PROVIDER=gemini
+export GOOGLE_API_KEY="..."
+
+# xAI Grok (alternative)
+export LLM_PROVIDER=grok
+export XAI_API_KEY="..."
+
+# Common
+export POCKETBASE_URL="http://127.0.0.1:8090"
+export FRICTIONLOG_API_KEY="..."       # optional auth
+
+uvicorn api:app --reload               # API (terminal 1)
+streamlit run ui.py                    # Dashboard (terminal 2)
 
 # Docker (recommended):
-docker-compose up --build -d                # starts api + dashboard
-docker-compose run --rm test                # run tests in container
+docker-compose up --build -d
+docker-compose run --rm test           # tests
 
-# Tests:
-pytest tests/ -v                            # 5 API tests (mocked PocketBase)
+# Lint & tests:
+ruff check . && ruff format --check .
+pytest tests/ -v
 ```
 
-## Critical Quirks
+## Key Architecture
 
-- **5 entry points**, not one: `api.py` (FastAPI), `ui.py` (Streamlit), `core.py` (orchestrator), `llm_client.py` (Gemini), `main.py` (Vercel serverless entry — empty file!). The active entry points are `api.py` and `ui.py`. **Do NOT use `main.py` for local dev.**
-- **PocketBase is a hard dependency** — the API communicates with it via `httpx`. Without PocketBase running at `POCKETBASE_URL`, all endpoints return errors. Tests mock it via `monkeypatch` on `httpx.AsyncClient`.
-- **Schema must be pre-loaded**: import `pocketbase_schema.json` in PocketBase admin panel (`http://127.0.0.1:8090/_/`), or run `python pb_setup.py` to create it programmatically.
-- **Google Gemini** (`gemini-1.5-flash`) requires `GOOGLE_API_KEY` env var. Without it, AI analysis endpoints (`/fricciones/{id}/analizar`, `/analizar-con-ia`) return error responses.
-- **`app.py` is empty** (0 lines) — legacy placeholder, not used for anything. Ignore it.
-- **`CHANGELOG.md` is PocketBase's changelog** (945 lines), not FrictionLog's. See `docs/BITACORA.md` for real project history.
-- **Tests mock both PocketBase AND Gemini** — `test_analizar_con_ia` and `test_analyze_friction_persistence` monkeypatch `api_module.core.analizar_friccion` to avoid real LLM calls.
-- **`descripcion` field minimum length**: 10 characters (enforced by Pydantic in `api.py`). POST with shorter text returns 422.
+- **`api.py`**: FastAPI async. Single `httpx.AsyncClient` via FastAPI lifespan.
+- **`llm_client.py`**: Provider abstraction (`LLMProvider` ABC). Supports Gemini and Grok. Selected via `LLM_PROVIDER` env var.
+- **`core.py`**: Thin orchestrator. Calls `llm_client.analizar_friccion` via `asyncio.to_thread`.
+- **`ui.py`**: Streamlit dashboard. Calls API endpoints.
+- **`cli.py`**: CLI tool using `httpx` (sync).
+- **`main.py`**: Vercel entrypoint — re-exports `api.app`.
+
+## LLM Providers
+
+| Provider | Env var | Model | Library |
+|----------|---------|-------|---------|
+| Gemini (default) | `GOOGLE_API_KEY` | `gemini-1.5-flash` | `google-generativeai` |
+| Grok | `XAI_API_KEY` | `grok-4.20` (configurable via `XAI_MODEL`) | `httpx` direct |
+
+## Auth
+
+If `FRICTIONLOG_API_KEY` is set, all endpoints require `Authorization: Bearer <key>`.
+
+## Key Fields (canonical format)
+
+All components use the same keys: `categoria`, `tipo_problema`, `impacto`, `idea_solucion`.
+
+## Tests
+
+- 10 tests, mock PocketBase (`httpx.AsyncClient`) + LLM responses
+- Run: `pytest tests/ -v`
+- CI runs lint (ruff) + test matrix (3.10, 3.11, 3.12)
