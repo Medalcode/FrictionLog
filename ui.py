@@ -82,7 +82,6 @@ else:
                 ok, res = register_friction(api_base, new_desc, new_severity)
                 if ok:
                     st.success("¡Fricción registrada!")
-                    time.sleep(1)
                     st.cache_data.clear()
                     st.rerun()
                 else:
@@ -166,8 +165,8 @@ else:
                         ok, res = delete_friction(api_base, row["id"])
                         if ok:
                             st.success("Fricción borrada")
-                            time.sleep(1)
                             st.cache_data.clear()
                             st.rerun()
                         else:
                             st.error(f"Error al borrar: {res}")
+

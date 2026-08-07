@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -95,13 +96,16 @@ class GrokProvider(LLMProvider):
 
 
 _provider: LLMProvider | None = None
+_provider_lock = threading.Lock()
 
 
 def _get_provider() -> LLMProvider:
     global _provider
     if _provider is None:
-        provider_name = os.getenv("LLM_PROVIDER", "gemini").lower()
-        _provider = GrokProvider() if provider_name == "grok" else GeminiProvider()
+        with _provider_lock:
+            if _provider is None:
+                provider_name = os.getenv("LLM_PROVIDER", "gemini").lower()
+                _provider = GrokProvider() if provider_name == "grok" else GeminiProvider()
     return _provider
 
 
@@ -121,4 +125,6 @@ def analizar_friccion(description: str) -> dict[str, Any]:
 
 def reset_provider():
     global _provider
-    _provider = None
+    with _provider_lock:
+        _provider = None
+

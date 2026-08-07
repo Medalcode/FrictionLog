@@ -30,7 +30,7 @@ def main():
             headers["Authorization"] = f"Bearer {args.api_key}"
 
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=15.0) as client:
                 r = client.post(
                     f"{args.api}/registrar-friccion",
                     json={"description": args.descripcion, "severity": args.severity},
@@ -40,10 +40,13 @@ def main():
                     data = r.json()
                     print(f"Fricción registrada exitosamente! ID: {data.get('id')}")
                 else:
-                    print(f"Error (HTTP {r.status_code}): {r.text}")
+                    print(f"Error (HTTP {r.status_code}): {r.text}", file=sys.stderr)
+                    sys.exit(1)
         except Exception as e:
-            print(f"Error de conexión: {e}")
+            print(f"Error de conexión: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
+

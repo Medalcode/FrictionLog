@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -49,27 +49,38 @@ async def _check_auth(request: Request):
             raise HTTPException(status_code=401, detail="API Key inválida o ausente")
 
 
-@app.post("/registrar-friccion")
+async def _safe_pb_request(client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
+    try:
+        func = getattr(client, method.lower())
+        return await func(url, **kwargs)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Error de conexión con PocketBase: {e!s}") from e
+
+
+
+@app.post("/registrar-friccion", dependencies=[Depends(_check_auth)])
 async def registrar_friccion(f: FrictionInput, request: Request):
-    await _check_auth(request)
     client: httpx.AsyncClient = request.app.state.http_client
     payload = {
         "user_id": f.user_id,
         "description": f.description,
         "severity": f.severity,
     }
-    res = await client.post(f"{core.PB_URL}/api/collections/fricciones/records", json=payload)
+    res = await _safe_pb_request(
+        client, "POST", f"{core.PB_URL}/api/collections/fricciones/records", json=payload
+    )
     if res.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Error en PocketBase: {res.text}")
     return {"status": "ok", "id": res.json().get("id")}
 
 
-@app.get("/fricciones")
+@app.get("/fricciones", dependencies=[Depends(_check_auth)])
 async def list_fricciones(request: Request, limit: int = 50):
-    await _check_auth(request)
     client: httpx.AsyncClient = request.app.state.http_client
-    res = await client.get(
-        f"{core.PB_URL}/api/collections/fricciones/records?sort=-created&perPage={limit}"
+    res = await _safe_pb_request(
+        client,
+        "GET",
+        f"{core.PB_URL}/api/collections/fricciones/records?sort=-created&perPage={limit}",
     )
     if res.status_code != 200:
         raise HTTPException(status_code=502, detail="Error al buscar en PocketBase")
@@ -91,12 +102,13 @@ async def list_fricciones(request: Request, limit: int = 50):
     ]
 
 
-@app.post("/fricciones/{friction_id}/analizar")
+@app.post("/fricciones/{friction_id}/analizar", dependencies=[Depends(_check_auth)])
 async def analyze_friction(friction_id: str, request: Request):
-    await _check_auth(request)
     client: httpx.AsyncClient = request.app.state.http_client
 
-    get_res = await client.get(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+    get_res = await _safe_pb_request(
+        client, "GET", f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}"
+    )
     if get_res.status_code != 200:
         raise HTTPException(status_code=404, detail="Fricción no encontrada")
 
@@ -114,7 +126,9 @@ async def analyze_friction(friction_id: str, request: Request):
         "idea_solucion": res_ia.get("idea_solucion", "Sin sugerencia"),
     }
 
-    patch_res = await client.patch(
+    patch_res = await _safe_pb_request(
+        client,
+        "PATCH",
         f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}",
         json=patch_payload,
     )
@@ -124,9 +138,12 @@ async def analyze_friction(friction_id: str, request: Request):
     return {"status": "ok", "analysis": res_ia}
 
 
-@app.post("/analizar-con-ia", response_model=IAResponseWrapper)
-async def api_analize_friction_endpoint(input_data: AnalyzeInput, request: Request):
-    await _check_auth(request)
+@app.post(
+    "/analizar-con-ia",
+    response_model=IAResponseWrapper,
+    dependencies=[Depends(_check_auth)],
+)
+async def api_analize_friction_endpoint(input_data: AnalyzeInput):
     try:
         resultado_ia = await core.analyze_with_ai(input_data.description)
         res = resultado_ia.get("response", {})
@@ -139,11 +156,12 @@ async def api_analize_friction_endpoint(input_data: AnalyzeInput, request: Reque
         raise HTTPException(status_code=500, detail=f"Error inesperado: {e!s}") from e
 
 
-@app.delete("/fricciones/{friction_id}")
+@app.delete("/fricciones/{friction_id}", dependencies=[Depends(_check_auth)])
 async def delete_friction(friction_id: str, request: Request):
-    await _check_auth(request)
     client: httpx.AsyncClient = request.app.state.http_client
-    res = await client.delete(f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}")
+    res = await _safe_pb_request(
+        client, "DELETE", f"{core.PB_URL}/api/collections/fricciones/records/{friction_id}"
+    )
     if res.status_code not in (200, 204):
         raise HTTPException(status_code=502, detail=f"Error al eliminar en PocketBase: {res.text}")
     return {"status": "ok"}
@@ -151,4 +169,7 @@ async def delete_friction(friction_id: str, request: Request):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(_request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     return JSONResponse(status_code=500, content={"detail": str(exc)})
+

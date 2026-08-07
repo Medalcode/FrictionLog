@@ -1,43 +1,52 @@
 import asyncio
 import json
+import os
 
 import httpx
+
+PB_URL = os.getenv("POCKETBASE_URL", "http://127.0.0.1:8090")
+ADMIN_EMAIL = os.getenv("PB_ADMIN_EMAIL", "admin@test.com")
+ADMIN_PASSWORD = os.getenv("PB_ADMIN_PASSWORD", "adminpassword123")
 
 
 async def setup():
     async with httpx.AsyncClient() as client:
         try:
             r1 = await client.post(
-                "http://127.0.0.1:8090/api/admins",
+                f"{PB_URL}/api/admins",
                 json={
-                    "email": "admin@test.com",
-                    "password": "adminpassword123",
-                    "passwordConfirm": "adminpassword123",
+                    "email": ADMIN_EMAIL,
+                    "password": ADMIN_PASSWORD,
+                    "passwordConfirm": ADMIN_PASSWORD,
                 },
             )
             print("Admin created:", r1.status_code)
-        except Exception:
-            pass
+        except Exception as e:
+            print("Admin setup note:", e)
 
         r2 = await client.post(
-            "http://127.0.0.1:8090/api/admins/auth-with-password",
-            json={"identity": "admin@test.com", "password": "adminpassword123"},
+            f"{PB_URL}/api/admins/auth-with-password",
+            json={"identity": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
         )
         token = r2.json().get("token")
+        if not token:
+            print("Failed to obtain admin token:", r2.text)
+            return
         print("Logged in, token:", token[:10])
 
-        with open("pocketbase_schema.json", encoding="utf-8") as f:
-            collections = json.load(f)
+        if os.path.exists("pocketbase_schema.json"):
+            with open("pocketbase_schema.json", encoding="utf-8") as f:
+                collections = json.load(f)
 
-        r3 = await client.put(
-            "http://127.0.0.1:8090/api/collections/import",
-            json={"collections": collections, "deleteMissing": False},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        print("Imported collections:", r3.status_code, r3.text)
+            r3 = await client.put(
+                f"{PB_URL}/api/collections/import",
+                json={"collections": collections, "deleteMissing": False},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            print("Imported collections:", r3.status_code, r3.text)
 
         r4 = await client.post(
-            "http://127.0.0.1:8090/api/collections/fricciones/records",
+            f"{PB_URL}/api/collections/fricciones/records",
             json={
                 "description": "Odio configurar servidores web manualmente, pierdo horas.",
                 "severity": 4,
@@ -48,3 +57,4 @@ async def setup():
 
 if __name__ == "__main__":
     asyncio.run(setup())
+
