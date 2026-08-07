@@ -9,6 +9,8 @@ services:
       - XAI_API_KEY=${XAI_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - FRICTIONLOG_API_KEY=${FRICTIONLOG_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -33,16 +35,19 @@ services:
   test:
     build: .
     container_name: frictionlog-test
-    command: pytest tests/ -v
+    command: python -m pytest tests/ -v
     environment:
       - POCKETBASE_URL=${POCKETBASE_URL:-http://host.docker.internal:8090}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - FRICTIONLOG_API_KEY=${FRICTIONLOG_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - friction-net
 
 networks:
   friction-net:
     driver: bridge
+
