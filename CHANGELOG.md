@@ -1,6 +1,17 @@
 # Changelog — FrictionLog
 
+## [2026-08-06] Auditoría y Refactorización de Calidad Técnica
+
+### Cambios
+- **Inyección de Dependencias FastAPI**: Migrada la validación de autenticación a `dependencies=[Depends(_check_auth)]` en todos los endpoints de `api.py`.
+- **Despachador Seguro de Red (`_safe_pb_request`)**: Implementado manejo centralizado de peticiones HTTP a PocketBase capturando fallos de red (`httpx.RequestError`).
+- **Singleton Thread-Safe (`llm_client.py`)**: Protegida la inicialización de proveedores LLM con `threading.Lock()` para eliminar race conditions en cargas concurrentes.
+- **Optimización de UI**: Removidas llamadas bloqueantes `time.sleep(1)` en la interfaz Streamlit para un renderizado asíncrono e instantáneo.
+- **Compatibilidad Linux Docker**: Agregado `extra_hosts: ["host.docker.internal:host-gateway"]` a `docker-compose.yml`.
+- **Resiliencia en CLI**: Añadido soporte de timeouts y códigos de salida `sys.exit(1)` con mensajes estandarizados a `stderr` en `cli.py`.
+
 ## [2026-06-21] Refactor mayor: abstracción LLM, auth, limpieza
+
 
 ### Cambios
 - **Abstracción de proveedor LLM**: Nueva arquitectura con `LLMProvider` ABC.
